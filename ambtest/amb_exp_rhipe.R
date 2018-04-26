@@ -191,6 +191,12 @@ for (i in 1:num_station) {
 }
 hdfs.setwd(project_dir)
 
+# replace NA with 0
+for (i in 1:num_station) {
+  st_sum[[i]] <- st_sum[[i]]
+  st_sum[[i]][is.na(st_sum[[i]])] <- 0
+}
+
 pdf()
 par(mar=c(4,4,4,4))
 #par(mfrow=c(num_stations,1))
