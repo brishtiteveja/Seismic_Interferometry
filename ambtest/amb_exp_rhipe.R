@@ -1,0 +1,203 @@
+library(RSEIS)
+library(RPMG)
+library(Rwave)
+library(datadr)
+library(signal)
+library(pracma)
+library(datadr)
+
+# plot in a pdf file
+pdf()
+# set the margin of the plot
+par(mar=c(1,1,1,1))
+
+# get the file names from the directory in the server
+fnames = list.files(path='./data2/',
+                    pattern=NULL, full.names=TRUE)
+
+# get the number of the stations
+num_station = length(fnames)
+
+# Divide each station into 2 files because otherwise Hadoop 64 MB block size exceeds 
+D <- 32
+
+Amp <- list()
+
+# create the user directory and move there
+user <- 'eergun/'
+user_dir <- paste('/user/', user, sep="")
+hdfs.setwd(user_dir)
+
+# Create the project directory 
+dir <- 'data2'
+project_dir <- paste(user_dir, dir, sep="")
+if (!rhexists(project_dir))
+  rhmkdir(project_dir)
+
+# change to the project directory
+hdfs.setwd(project_dir)
+
+data_dir <- "data"
+if (!rhexists(data_dir))
+   rhmkdir(data_dir)
+
+# change to the data directory
+hdfs.setwd(data_dir)
+
+# remove all data
+rhdel("*")
+
+# Read the SAC formatted seismic data for each station from the data directory
+# and write them as key value pair file on hadoop
+for (i in 1:num_station) {
+  fn = fnames[i]
+  st_num <- as.numeric(paste('100', i, sep="")) 
+  station <- read1sac(fn , Iendian = 1 , HEADONLY=FALSE, BIGLONG=FALSE)
+  
+  N <- length(station$amp)
+  station$station <- rep(st_num, N)
+  stationDF <- data.frame(station= station['station'], amp = station['amp'])
+  
+  start_idx <- 1 
+  end_idx <- as.integer(N / D)
+  for (j in 1:D) {
+    jN <- length(start_idx:end_idx)
+    stationKV <- list(list(st_num, stationDF[start_idx:end_idx, ])) 
+
+    stationDataFile <- paste("station", i, "_", j, "_Data", sep="")
+    print(paste("Writing ", stationDataFile, " in HDFS."))
+    if (!rhexists(stationDataFile))
+      rhwrite(stationKV, file=stationDataFile)
+   
+    start_idx <- end_idx + 1 
+    end_idx <- start_idx + as.integer(N / D) - 1
+  }
+}  
+
+hdfs_dir <- paste(user_dir, dir,"/", data_dir, sep="")
+seismHDFSconn <- hdfsConn(hdfs_dir, autoYes = TRUE)
+
+datakvDdf <- ddf(seismHDFSconn)
+datakvDdf <- updateAttributes(datakvDdf)
+
+n = 2000
+byamp <- divide(datakvDdf, 
+                by ="station",
+                spill = n,
+                #output = hdfsConn(dirs, autoYes=TRUE),
+                update=TRUE)
+
+dt = 0.004
+fs = 1/dt
+b1= butter(2, c(0.01/(fs/2), 3/(fs/2)))
+signbit <- function(data){
+  
+  for (i in seq(1,length(data))){
+    if (data[i] < 0) {
+      data[i] = -1
+    } else if (data[i] > 0) {
+      data[i] = 1
+    } else
+      data[i] =0
+  }  
+  return(data)
+}
+
+
+time=(0:(n-1))*dt
+l = n/2
+proccc <- addTransform(byamp, function(v) {
+  a = v$amp -  mean(v$amp)
+  a = detrend(a)
+  a = filtfilt(b1, a, type="pass")
+  b = signbit(a)
+  au_sta_22  = acf(b,lag.max = l - 1, type = c("correlation"))
+  fit.loess22 <- loess(au_sta_22$acf ~ time[1:l], span=0.15, degree=2)
+  predict.loess22 <- predict(fit.loess22, time[1:l], se=TRUE)
+  a_22 <- ts(au_sta_22$acf, frequency = fs) # tell R the sampling frequency
+  a_22_spec <- spec.pgram(a_22, demean = FALSE, detrend = TRUE,plot = TRUE)
+  s_22 <- ts(predict.loess22$fit, frequency = fs) # tell R the sampling frequency
+  s_22_spec <- spec.pgram(s_22, demean = FALSE, detrend = TRUE,plot = TRUE)
+  # spectral whitening can be done dividing the power spectrum of autocorrelated data to smoothed data . add a little damping to the denominator
+  wh_sta_22 = a_22_spec$spec / (s_22_spec$spec + 0.00001)
+  wh_sta_22_time = abs(ifft((wh_sta_22)))
+  b2= butter(2, c(10/(fs/2), 20/(fs/2)))
+  result_station_22 <- filtfilt(b2, wh_sta_22_time, type="pass")
+})
+last = recombine(proccc, combRbind)
+
+hdfs.setwd(project_dir)
+
+# Now each station data will be saved as chunk
+m <- n/4
+for (i in 1:num_station) {
+  fn = fnames[i]
+  st_num <- as.numeric(paste('100', i, sep="")) 
+  station = subset(last, last$station == st_num)
+  
+  N <- length(station$val)
+  stationDF <- data.frame(station = station$station, amp = station$val)
+  
+  start_idx <- 1 
+  end_idx <- as.integer(m)
+  
+  output_dir <- paste('Station_', i, '_Output', sep="")
+  if (rhexists(output_dir))
+    rhdel(output_dir)  
+  rhmkdir(output_dir)
+  
+  hdfs.setwd(output_dir)
+  
+  D <- as.integer(N / m)
+  for (j in 1:D) {
+    jN <- length(start_idx:end_idx)
+    stationKV <- list(list(key=st_num, value=stationDF[start_idx:end_idx, ])) 
+    
+    stationDataFile <- paste("station_output_", i, "_", j, "_Data", sep="")
+    print(paste("Writing ", stationDataFile, " output file in HDFS."))
+    rhwrite(stationKV, file=stationDataFile)
+    
+    start_idx <- end_idx + 1 
+    end_idx <- start_idx + as.integer(m) - 1
+  }
+  
+  hdfs.setwd(project_dir)
+}  
+
+st_sum = list()
+
+for (i in 1:num_station) { 
+  print(paste("Processing station output", i))
+  tryCatch({
+    output_dir <- paste(user_dir, dir, "/", 'Station_', i, '_Output', sep="")
+    outHDFSconn <- hdfsConn(output_dir, autoYes = TRUE)
+    outputkvDdf <- ddf(outHDFSconn)
+    outputkvDdf <- updateAttributes(outputkvDdf)
+    
+    byStation <- divide(outputkvDdf, 
+                        by ="station",
+                        spill = m,
+                        #output = hdfsConn(dirs, autoYes=TRUE),
+                        update=TRUE)
+    sumReduce <- addTransform(byStation, function(v) {
+          v$amp 
+    })
+    
+    st_sum[[i]] = recombine(sumReduce, combMean)
+  },
+  error = function(err){
+     print(err)
+  })
+}
+hdfs.setwd(project_dir)
+
+pdf()
+par(mar=c(4,4,4,4))
+#par(mfrow=c(num_stations,1))
+time = (0:(n/4 - 1)) * dt
+for (i in 1:num_station) {
+  t = paste("Summed Amplitude of noise from station", i)
+  plot(rev(st_sum[[i]]), time, type='l', col=i, ylab='Time(s)', xlab='Amp', main=t, xlim=c(-max(st_sum[[i]]), max(st_sum[[i]])))
+  abline(v=0, lty=2)
+}
+dev.off()
