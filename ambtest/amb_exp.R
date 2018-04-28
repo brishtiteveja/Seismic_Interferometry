@@ -9,23 +9,26 @@ library(signal)
 library(pracma)
 
 
-fnames = list.files(path='./data2',
+fnames = list.files(path='./data',
                     pattern=NULL, full.names=TRUE)
 num_station = length(fnames)
 
 beds = list()
+dt = 0.004
+fs=1/dt;
+
 for (i in 1:num_station) {
   fn = fnames[i]
-  bed =  data.frame(read1sac(fn , Iendian = 1 , HEADONLY=FALSE, BIGLONG=FALSE))
+  bed =  read1sac(fn , Iendian = 1 , HEADONLY=FALSE, BIGLONG=FALSE)
+  bed = data.frame(HEAD.kstnm = bed$HEAD$kstnm, amp = bed$amp)
   bed <- bed[-nrow(bed),]
   bed <- bed[-nrow(bed),]
-  dt= bed$HEAD.delta[1] 
-  bed$HEAD.time = (1:length(bed$HEAD.npts)-1)*dt
+  #bed$HEAD.time = (1:length(bed$HEAD.npts)-1)*dt
   bed <- bed[,c('HEAD.kstnm', 'amp')]
   beds[[i]] <- bed
 } 
 
-fs=1/dt;
+
 dataKV <- list()
 
 for (i in 1:num_station) {
@@ -131,3 +134,4 @@ for (i in 1:num_station) {
   plot(rev(st_sum[[i]]), time, type='l', col=i, ylab='Time(s)', xlab='Amp', main=t, xlim=c(-max(st_sum[[i]]), max(st_sum[[i]])))
   abline(v=0, lty=2)
 }
+
