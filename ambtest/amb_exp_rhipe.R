@@ -30,9 +30,6 @@ fnames = list.files(path='./data/',
 # get the number of the stations
 num_station = length(fnames)
 
-# Divide each station into 2 files because otherwise Hadoop 64 MB block size exceeds 
-D <- 8
-
 Amp <- list()
 
 # create the user directory and move there
@@ -41,7 +38,7 @@ user_dir <- paste('/user/', user, sep="")
 hdfs.setwd(user_dir)
 
 # Create the project directory 
-dir <- 'interferometry'
+dir <- 'interferometry_small'
 project_dir <- paste(user_dir, dir, sep="")
 if (!rhexists(project_dir))
   rhmkdir(project_dir)
@@ -62,16 +59,24 @@ rhdel("*")
 # Read the SAC formatted seismic data for each station from the data directory
 # and write them as key value pair file on hadoop
 n = 2000
+# Divide each station into 2 files because otherwise Hadoop 64 MB block size exceeds 
+D <- NULL # or 16, needs to divide N-1
+
 
 for (i in 1:num_station) {
   fn = fnames[i]
-  st_num <- as.numeric(paste('100', i, sep="")) 
+  st_num <- as.character(paste('100', i, sep="")) 
   station <- read1sac(fn , Iendian = 1 , HEADONLY=FALSE, BIGLONG=FALSE)
   
   N_orig <- length(station$amp)
   
   nn <- as.integer(N_orig/n)
-  N <- nn * n - 1
+  if (nn %% 2 == 0)
+    D <- nn/2
+  else
+    D <- (nn + 1) / 2
+  
+  N <- nn * n - 1 
   N_del <- N_orig - N 
   
   station$station <- rep(st_num, N_orig)
@@ -79,26 +84,30 @@ for (i in 1:num_station) {
   stationDF <- stationDF[1:N, ]
   
   start_idx <- 1 
-  end_idx <- as.integer(N / D)
+  bin_size <- 2 * n
+  end_idx <- as.integer(bin_size)
   for (j in 1:D) {
+    if (j == D) {
+      end_idx = N
+    }
     jN <- length(start_idx:end_idx)
     stationKV <- list(list(st_num, stationDF[start_idx:end_idx, ])) 
-
-    stationDataFile <- paste("station", i, "_", j, "_Data", sep="")
+   
+    stationDataFile <- paste(i, "_", j, "station", "_Data", sep="")
     print(paste("Writing ", stationDataFile, " in HDFS."))
     if (!rhexists(stationDataFile))
       rhwrite(stationKV, file=stationDataFile)
    
     start_idx <- end_idx + 1 
-    end_idx <- start_idx + as.integer(N / D) - 1
+    end_idx <- start_idx + bin_size - 1
   }
 }  
 
 hdfs_dir <- paste(user_dir, dir,"/", data_dir, sep="")
 seismHDFSconn <- hdfsConn(hdfs_dir, autoYes = TRUE)
 
-datakvDdf <- ddf(seismHDFSconn)
-datakvDdf <- updateAttributes(datakvDdf)
+datakvDdf <- ddf(seismHDFSconn) 
+datakvDdf  <- updateAttributes(datakvDdf)
 
 byamp <- divide(datakvDdf, 
                 by ="station",
@@ -126,16 +135,18 @@ signbit <- function(data){
 time=(0:(n-1))*dt
 l = n/2
 proccc <- addTransform(byamp, function(v) {
+  #print(length(v$amp))
   a = v$amp -  mean(v$amp)
   a = detrend(a)
   a = filtfilt(b1, a, type="pass")
   b = signbit(a)
   au_sta_22  = acf(b,lag.max = l - 1, type = c("correlation"))
-  #vcrit = sqrt(2)*erfinv(0.95)^M
-  #lconf = -vcrit/sqrt(n);^M
-  #upconf = vcrit/sqrt(n);^M
-  #ind_22 = (auto_sta_22$acf >=lconf & auto_sta_22$acf <= upconf )^M
-  #auto_sta_22$acf[ind_22=="TRUE"] = 0
+  #print(length(au_sta_22$acf))
+  vcrit = sqrt(2)*erfinv(0.95)
+  lconf = -vcrit/sqrt(n);
+  upconf = vcrit/sqrt(n);
+  ind_22 = (auto_sta_22$acf >=lconf & auto_sta_22$acf <= upconf )
+  auto_sta_22$acf[ind_22=="TRUE"] = 0
   fit.loess22 <- loess(au_sta_22$acf ~ time[1:l], span=0.15, degree=2)
   predict.loess22 <- predict(fit.loess22, time[1:l], se=TRUE)
   a_22 <- ts(au_sta_22$acf, frequency = fs) # tell R the sampling frequency
@@ -156,15 +167,12 @@ hdfs.setwd(project_dir)
 m <- n/4
 for (i in 1:num_station) {
   fn = fnames[i]
-  st_num <- as.numeric(paste('100', i, sep="")) 
+  st_num <- as.character(paste('100', i, sep="")) 
   station = subset(last, last$station == st_num)
   
-  N <- length(station$val)
+  NN <- length(station$val)
   stationDF <- data.frame(station = station$station, amp = station$val)
-  
-  start_idx <- 1 
-  end_idx <- as.integer(m)
-  
+ 
   output_dir <- paste('Station_', i, '_Output', sep="")
   if (rhexists(output_dir))
     rhdel(output_dir)  
@@ -172,17 +180,24 @@ for (i in 1:num_station) {
   
   hdfs.setwd(output_dir)
   
-  D <- as.integer(N / m)
-  for (j in 1:D) {
+  fD <- as.integer(NN / m)
+  
+  start_idx <- 1 
+  end_idx <- as.integer(m)
+  for (j in 1:fD) {
+    if (j == fD)
+      end_idx <- NN
+    
     jN <- length(start_idx:end_idx)
     stationKV <- list(list(key=st_num, value=stationDF[start_idx:end_idx, ])) 
     
-    stationDataFile <- paste("station_output_", i, "_", j, "_Data", sep="")
+    stationDataFile <- paste(j, "_station_output_", "Data", sep="")
     print(paste("Writing ", stationDataFile, " output file in HDFS."))
     rhwrite(stationKV, file=stationDataFile)
     
     start_idx <- end_idx + 1 
     end_idx <- start_idx + as.integer(m) - 1
+    
   }
   
   hdfs.setwd(project_dir)
@@ -194,16 +209,17 @@ for (i in 1:num_station) {
   print(paste("Processing station output", i))
   tryCatch({
     output_dir <- paste(user_dir, dir, "/", 'Station_', i, '_Output', sep="")
+    #print(rhls(output_dir))
     outHDFSconn <- hdfsConn(output_dir, autoYes = TRUE)
     outputkvDdf <- ddf(outHDFSconn)
     outputkvDdf <- updateAttributes(outputkvDdf)
     
-    byStation <- divide(outputkvDdf, 
-                        by ="station",
-                        spill = m,
-                        #output = hdfsConn(dirs, autoYes=TRUE),
-                        update=TRUE)
-    sumReduce <- addTransform(byStation, function(v) {
+    byStation <- divide(outputkvDdf,
+                        by = 'station',
+                        spill = m
+                       )
+    byStationModified <- ddf(byStation[1:fD])
+    sumReduce <- addTransform(byStationModified, function(v) {
           v$amp 
     })
     
@@ -215,13 +231,11 @@ for (i in 1:num_station) {
 }
 hdfs.setwd(project_dir)
 
-# replace NA with 0
+# # replace NA with 0
 for (i in 1:num_station) {
-  st_sum[[i]] <- st_sum[[i]]
-  st_sum[[i]][is.na(st_sum[[i]])] <- 0
+  st_sum[[i]] <- st_sum[[i]] * fD
 }
 
-pdf()
 par(mar=c(4,4,4,4))
 #par(mfrow=c(num_stations,1))
 time = (0:(n/4 - 1)) * dt

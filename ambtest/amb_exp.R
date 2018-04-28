@@ -23,7 +23,7 @@ for (i in 1:num_station) {
   bed$HEAD.time = (1:length(bed$HEAD.npts)-1)*dt
   bed <- bed[,c('HEAD.kstnm', 'amp')]
   beds[[i]] <- bed
-}
+} 
 
 fs=1/dt;
 dataKV <- list()
@@ -48,8 +48,8 @@ byamp <- divide(datakvDdf,
                 update=TRUE)
 
 b1= butter(2, c(0.01/(fs/2), 3/(fs/2)))
+
 signbit <- function(data){
-  
   for (i in seq(1,length(data))){
     if (data[i] < 0) {
       data[i] = -1
@@ -70,6 +70,13 @@ proccc <- addTransform(byamp, function(v) {
   a = filtfilt(b1, a, type="pass")
   b = signbit(a)
   au_sta_22  = acf(b,lag.max = l - 1, type = c("correlation"))
+  #print(length(au_sta_22$acf))
+  vcrit = sqrt(2)*erfinv(0.95)
+  lconf = -vcrit/sqrt(n);
+  upconf = vcrit/sqrt(n);
+  ind_22 = (auto_sta_22$acf >=lconf & auto_sta_22$acf <= upconf)
+  auto_sta_22$acf[ind_22=="TRUE"] = 0
+  
   fit.loess22 <- loess(au_sta_22$acf ~ time[1:l], span=0.15, degree=2)
   predict.loess22 <- predict(fit.loess22, time[1:l], se=TRUE)
   a_22 <- ts(au_sta_22$acf, frequency = fs) # tell R the sampling frequency
