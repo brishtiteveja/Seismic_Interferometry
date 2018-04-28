@@ -5,3 +5,5 @@ data_old/
 
 *.log
 rhipe-java*
+
+*.RData
