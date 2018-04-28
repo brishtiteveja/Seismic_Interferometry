@@ -1,4 +1,4 @@
-# con <- file("hadoop_output.log")
+# con <- file("hadoop_output_log.txt")
 # sink(con, append=TRUE)
 # sink(con, append=TRUE, type="message")
 # 
@@ -31,7 +31,7 @@ fnames = list.files(path='./data/',
 num_station = length(fnames)
 
 # Divide each station into 2 files because otherwise Hadoop 64 MB block size exceeds 
-D <- 32
+D <- 8
 
 Amp <- list()
 
@@ -68,14 +68,15 @@ for (i in 1:num_station) {
   st_num <- as.numeric(paste('100', i, sep="")) 
   station <- read1sac(fn , Iendian = 1 , HEADONLY=FALSE, BIGLONG=FALSE)
   
-  N <- length(station$amp)
-  nn <- as.integer(N/n)
-  N <- nn * n - 1
+  N_orig <- length(station$amp)
   
-  station$station <- rep(st_num, N)
-  station_n_d <- station['station'][1:N]
-  amp_d <- station['amp'][1:N]
-  stationDF <- data.frame(station=station_n_d, amp=amp_d)
+  nn <- as.integer(N_orig/n)
+  N <- nn * n - 1
+  N_del <- N_orig - N 
+  
+  station$station <- rep(st_num, N_orig)
+  stationDF <- data.frame(station=station['station'], amp=station['amp'])
+  stationDF <- stationDF[1:N, ]
   
   start_idx <- 1 
   end_idx <- as.integer(N / D)
