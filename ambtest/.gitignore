@@ -7,3 +7,5 @@ data_old/
 rhipe-java*
 
 *.RData
+.RData
+.Rhistory
