@@ -9,3 +9,5 @@ rhipe-java*
 *.RData
 .RData
 .Rhistory
+hadoop_output_log.txt
+Rplots.pdf
