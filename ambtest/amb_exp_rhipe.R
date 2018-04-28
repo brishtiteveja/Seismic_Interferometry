@@ -1,3 +1,15 @@
+# con <- file("hadoop_output.log")
+# sink(con, append=TRUE)
+# sink(con, append=TRUE, type="message")
+# 
+# # This will echo all input and not truncate 150+ character lines...
+# source("amb_exp_rhipe.R", echo=TRUE, max.deparse.length=10000)
+# 
+# # Restore output to console
+# sink() 
+# sink(type="message")
+
+
 library(RSEIS)
 library(RPMG)
 library(Rwave)
@@ -12,7 +24,7 @@ pdf()
 par(mar=c(1,1,1,1))
 
 # get the file names from the directory in the server
-fnames = list.files(path='./data2/',
+fnames = list.files(path='./data/',
                     pattern=NULL, full.names=TRUE)
 
 # get the number of the stations
@@ -29,7 +41,7 @@ user_dir <- paste('/user/', user, sep="")
 hdfs.setwd(user_dir)
 
 # Create the project directory 
-dir <- 'data2'
+dir <- 'interferometry'
 project_dir <- paste(user_dir, dir, sep="")
 if (!rhexists(project_dir))
   rhmkdir(project_dir)
@@ -49,14 +61,21 @@ rhdel("*")
 
 # Read the SAC formatted seismic data for each station from the data directory
 # and write them as key value pair file on hadoop
+n = 2000
+
 for (i in 1:num_station) {
   fn = fnames[i]
   st_num <- as.numeric(paste('100', i, sep="")) 
   station <- read1sac(fn , Iendian = 1 , HEADONLY=FALSE, BIGLONG=FALSE)
   
   N <- length(station$amp)
+  nn <- as.integer(N/n)
+  N <- nn * n - 1
+  
   station$station <- rep(st_num, N)
-  stationDF <- data.frame(station= station['station'], amp = station['amp'])
+  station_n_d <- station['station'][1:N]
+  amp_d <- station['amp'][1:N]
+  stationDF <- data.frame(station=station_n_d, amp=amp_d)
   
   start_idx <- 1 
   end_idx <- as.integer(N / D)
@@ -80,7 +99,6 @@ seismHDFSconn <- hdfsConn(hdfs_dir, autoYes = TRUE)
 datakvDdf <- ddf(seismHDFSconn)
 datakvDdf <- updateAttributes(datakvDdf)
 
-n = 2000
 byamp <- divide(datakvDdf, 
                 by ="station",
                 spill = n,
@@ -112,6 +130,11 @@ proccc <- addTransform(byamp, function(v) {
   a = filtfilt(b1, a, type="pass")
   b = signbit(a)
   au_sta_22  = acf(b,lag.max = l - 1, type = c("correlation"))
+  #vcrit = sqrt(2)*erfinv(0.95)^M
+  #lconf = -vcrit/sqrt(n);^M
+  #upconf = vcrit/sqrt(n);^M
+  #ind_22 = (auto_sta_22$acf >=lconf & auto_sta_22$acf <= upconf )^M
+  #auto_sta_22$acf[ind_22=="TRUE"] = 0
   fit.loess22 <- loess(au_sta_22$acf ~ time[1:l], span=0.15, degree=2)
   predict.loess22 <- predict(fit.loess22, time[1:l], se=TRUE)
   a_22 <- ts(au_sta_22$acf, frequency = fs) # tell R the sampling frequency
