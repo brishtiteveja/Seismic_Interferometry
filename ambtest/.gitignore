@@ -1,0 +1,7 @@
+data/
+data_1d/
+data_3d/
+data_old/
+
+*.log
+rhipe-java*
