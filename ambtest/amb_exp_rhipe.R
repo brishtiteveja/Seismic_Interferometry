@@ -71,10 +71,6 @@ for (i in 1:num_station) {
   N_orig <- length(station$amp)
   
   nn <- as.integer(N_orig/n)
-  if (nn %% 2 == 0)
-    D <- nn/2
-  else
-    D <- (nn + 1) / 2
   
   N <- nn * n - 1 
   N_del <- N_orig - N 
@@ -84,22 +80,30 @@ for (i in 1:num_station) {
   stationDF <- stationDF[1:N, ]
   
   start_idx <- 1 
-  bin_size <- 2 * n
-  end_idx <- as.integer(bin_size)
-  for (j in 1:D) {
-    if (j == D) {
+  
+  k <- 10
+  num_rows <- (N + 1) / k
+  end_idx <- as.integer(num_rows)
+ 
+  j <- 1 
+  while(1) {
+    if (end_idx > N) {
       end_idx = N
     }
     jN <- length(start_idx:end_idx)
     stationKV <- list(list(st_num, stationDF[start_idx:end_idx, ])) 
    
     stationDataFile <- paste(i, "_", j, "station", "_Data", sep="")
+    j <- j + 1
     print(paste("Writing ", stationDataFile, " in HDFS."))
     if (!rhexists(stationDataFile))
       rhwrite(stationKV, file=stationDataFile)
    
+    if (end_idx == N)
+      break
+    
     start_idx <- end_idx + 1 
-    end_idx <- start_idx + bin_size - 1
+    end_idx <- start_idx + num_rows - 1
   }
 }  
 
@@ -140,13 +144,15 @@ proccc <- addTransform(byamp, function(v) {
   a = detrend(a)
   a = filtfilt(b1, a, type="pass")
   b = signbit(a)
-  au_sta_22  = acf(b,lag.max = l - 1, type = c("correlation"))
-  #print(length(au_sta_22$acf))
-  vcrit = sqrt(2)*erfinv(0.95)
+  
+  au_sta_22  = acf(b,lag.max = l-1, type = c("correlation"))
+  # #print(length(au_sta_22$acf))
+  vcrit = sqrt(2)*erfinv(0.99)
   lconf = -vcrit/sqrt(n);
   upconf = vcrit/sqrt(n);
-  ind_22 = (auto_sta_22$acf >=lconf & auto_sta_22$acf <= upconf )
-  auto_sta_22$acf[ind_22=="TRUE"] = 0
+  ind_22 = (au_sta_22$acf >=lconf & au_sta_22$acf <= upconf)
+  au_sta_22$acf[ind_22=="TRUE"] = 0
+  
   fit.loess22 <- loess(au_sta_22$acf ~ time[1:l], span=0.15, degree=2)
   predict.loess22 <- predict(fit.loess22, time[1:l], se=TRUE)
   a_22 <- ts(au_sta_22$acf, frequency = fs) # tell R the sampling frequency

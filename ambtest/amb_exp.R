@@ -69,13 +69,13 @@ proccc <- addTransform(byamp, function(v) {
   a = detrend(a)
   a = filtfilt(b1, a, type="pass")
   b = signbit(a)
-  au_sta_22  = acf(b,lag.max = l - 1, type = c("correlation"))
-  #print(length(au_sta_22$acf))
-  vcrit = sqrt(2)*erfinv(0.95)
+  au_sta_22  = acf(b,lag.max = l-1, type = c("correlation"))
+  # #print(length(au_sta_22$acf))
+  vcrit = sqrt(2)*erfinv(0.99)
   lconf = -vcrit/sqrt(n);
   upconf = vcrit/sqrt(n);
-  ind_22 = (auto_sta_22$acf >=lconf & auto_sta_22$acf <= upconf)
-  auto_sta_22$acf[ind_22=="TRUE"] = 0
+  ind_22 = (au_sta_22$acf >=lconf & au_sta_22$acf <= upconf)
+  au_sta_22$acf[ind_22=="TRUE"] = 0
   
   fit.loess22 <- loess(au_sta_22$acf ~ time[1:l], span=0.15, degree=2)
   predict.loess22 <- predict(fit.loess22, time[1:l], se=TRUE)
