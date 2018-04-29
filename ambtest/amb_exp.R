@@ -42,8 +42,6 @@ for (i in 1:num_station) {
 datakvDdf <- ddf(dataKV)
 
 n = 2000
-user_dir <- paste('/user/', user, sep="")
-dirs <- paste(user_dir, 'byamp', sep="")
 byamp <- divide(datakvDdf, 
                 by ="HEAD.kstnm",
                 spill = n,
