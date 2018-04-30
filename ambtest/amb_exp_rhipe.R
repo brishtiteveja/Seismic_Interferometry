@@ -47,9 +47,11 @@ rhdel(tmp_dir)
 
 # Create the project directory 
 project_dir <- paste(user_dir, project_dir_name, sep="")
-rhdel(project_dir)
-if (!rhexists(project_dir))
-  rhmkdir(project_dir)
+
+if (rhexists(project_dir))
+  rhdel(project_dir)
+
+rhmkdir(project_dir)
 
 # change to the project directory
 hdfs.setwd(project_dir)
