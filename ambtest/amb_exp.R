@@ -9,7 +9,7 @@ library(signal)
 library(pracma)
 
 
-fnames = list.files(path='./data',
+fnames = list.files(path='./data2',
                     pattern=NULL, full.names=TRUE)
 num_station = length(fnames)
 
@@ -17,12 +17,17 @@ beds = list()
 dt = 0.004
 fs=1/dt;
 
+
+n = 8000
 for (i in 1:num_station) {
   fn = fnames[i]
   bed =  read1sac(fn , Iendian = 1 , HEADONLY=FALSE, BIGLONG=FALSE)
   bed = data.frame(HEAD.kstnm = bed$HEAD$kstnm, amp = bed$amp)
-  bed <- bed[-nrow(bed),]
-  bed <- bed[-nrow(bed),]
+  N <- length(bed$amp)
+  NN <- n * as.integer(N/n)
+  NN <- NN - 1
+  
+  bed <- bed[1:NN,]
   #bed$HEAD.time = (1:length(bed$HEAD.npts)-1)*dt
   bed <- bed[,c('HEAD.kstnm', 'amp')]
   beds[[i]] <- bed
@@ -41,14 +46,13 @@ for (i in 1:num_station) {
 
 datakvDdf <- ddf(dataKV)
 
-n = 2000
-user_dir <- paste('/user/', user, sep="")
-dirs <- paste(user_dir, 'byamp', sep="")
 byamp <- divide(datakvDdf, 
                 by ="HEAD.kstnm",
                 spill = n,
                 #output = hdfsConn(dirs, autoYes=TRUE),
                 update=TRUE)
+
+
 
 b1= butter(2, c(0.01/(fs/2), 3/(fs/2)))
 
@@ -89,7 +93,7 @@ proccc <- addTransform(byamp, function(v) {
   # spectral whitening can be done dividing the power spectrum of autocorrelated data to smoothed data . add a little damping to the denominator
   wh_sta_22 = a_22_spec$spec / (s_22_spec$spec + 0.00001)
   wh_sta_22_time = abs(ifft((wh_sta_22)))
-  b2= butter(2, c(10/(fs/2), 20/(fs/2)))
+  b2= butter(2, c(6/(fs/2), 12/(fs/2)))
   result_station_22 <- filtfilt(b2, wh_sta_22_time, type="pass")
 })
 last = recombine(proccc, combRbind)
@@ -134,4 +138,3 @@ for (i in 1:num_station) {
   plot(rev(st_sum[[i]]), time, type='l', col=i, ylab='Time(s)', xlab='Amp', main=t, xlim=c(-max(st_sum[[i]]), max(st_sum[[i]])))
   abline(v=0, lty=2)
 }
-

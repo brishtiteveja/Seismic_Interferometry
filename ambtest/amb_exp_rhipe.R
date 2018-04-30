@@ -16,15 +16,20 @@ library(Rwave)
 library(datadr)
 library(signal)
 library(pracma)
-library(datadr)
 
 # plot in a pdf file
-pdf()
 # set the margin of the plot
 par(mar=c(1,1,1,1))
 
+user <- 'azehady/'
+data_file_path = './data5hours/'
+project_dir_name = 'interferometry_5hours'
+
+#data_file_path = './data2/'
+#project_dir_name = 'data2'
+
 # get the file names from the directory in the server
-fnames = list.files(path='./data/',
+fnames = list.files(path=data_file_path,
                     pattern=NULL, full.names=TRUE)
 
 # get the number of the stations
@@ -33,13 +38,16 @@ num_station = length(fnames)
 Amp <- list()
 
 # create the user directory and move there
-user <- 'eergun/'
 user_dir <- paste('/user/', user, sep="")
 hdfs.setwd(user_dir)
 
+# remove tmp files
+tmp_dir <- paste(user_dir, 'tmp/*', sep="")
+rhdel(tmp_dir)
+
 # Create the project directory 
-dir <- 'interferometry_small'
-project_dir <- paste(user_dir, dir, sep="")
+project_dir <- paste(user_dir, project_dir_name, sep="")
+rhdel(project_dir)
 if (!rhexists(project_dir))
   rhmkdir(project_dir)
 
@@ -58,7 +66,7 @@ rhdel("*")
 
 # Read the SAC formatted seismic data for each station from the data directory
 # and write them as key value pair file on hadoop
-n = 2000
+n = 8000
 # Divide each station into 2 files because otherwise Hadoop 64 MB block size exceeds 
 D <- NULL # or 16, needs to divide N-1
 
@@ -68,27 +76,39 @@ for (i in 1:num_station) {
   st_num <- as.character(paste('100', i, sep="")) 
   station <- read1sac(fn , Iendian = 1 , HEADONLY=FALSE, BIGLONG=FALSE)
   
-  N_orig <- length(station$amp)
+  N <- length(station$amp)
+  NN <- n * as.integer(N/n)
+  NN <- NN - 1
+  #print(fn)
+  #print(NN)
   
-  nn <- as.integer(N_orig/n)
-  
-  N <- nn * n - 1 
-  N_del <- N_orig - N 
-  
-  station$station <- rep(st_num, N_orig)
+  station$station <- rep(st_num, N)
   stationDF <- data.frame(station=station['station'], amp=station['amp'])
-  stationDF <- stationDF[1:N, ]
+  
+  stationDF <- stationDF[1:NN, ]
   
   start_idx <- 1 
   
-  k <- 10
-  num_rows <- (N + 1) / k
+  k <- 20
+  nn <- (NN + 1) / n
+  nnn <- as.integer(nn / k)
+  
+  if (nnn != 0)  
+    num_rows <- nnn * n
+  else
+    num_rows <- n
+  
   end_idx <- as.integer(num_rows)
  
   j <- 1 
+  breakout = FALSE
   while(1) {
-    if (end_idx > N) {
-      end_idx = N
+    #print(start_idx)
+    #print(end_idx)
+    #print("")
+    if (end_idx > NN) {
+      end_idx = NN
+      breakout = TRUE
     }
     jN <- length(start_idx:end_idx)
     stationKV <- list(list(st_num, stationDF[start_idx:end_idx, ])) 
@@ -99,7 +119,7 @@ for (i in 1:num_station) {
     if (!rhexists(stationDataFile))
       rhwrite(stationKV, file=stationDataFile)
    
-    if (end_idx == N)
+    if (breakout)
       break
     
     start_idx <- end_idx + 1 
@@ -107,7 +127,7 @@ for (i in 1:num_station) {
   }
 }  
 
-hdfs_dir <- paste(user_dir, dir,"/", data_dir, sep="")
+hdfs_dir <- paste(user_dir, project_dir_name,"/", data_dir, sep="")
 seismHDFSconn <- hdfsConn(hdfs_dir, autoYes = TRUE)
 
 datakvDdf <- ddf(seismHDFSconn) 
@@ -162,7 +182,7 @@ proccc <- addTransform(byamp, function(v) {
   # spectral whitening can be done dividing the power spectrum of autocorrelated data to smoothed data . add a little damping to the denominator
   wh_sta_22 = a_22_spec$spec / (s_22_spec$spec + 0.00001)
   wh_sta_22_time = abs(ifft((wh_sta_22)))
-  b2= butter(2, c(10/(fs/2), 20/(fs/2)))
+  b2= butter(2, c(6/(fs/2), 12/(fs/2)))
   result_station_22 <- filtfilt(b2, wh_sta_22_time, type="pass")
 })
 last = recombine(proccc, combRbind)
@@ -214,7 +234,7 @@ st_sum = list()
 for (i in 1:num_station) { 
   print(paste("Processing station output", i))
   tryCatch({
-    output_dir <- paste(user_dir, dir, "/", 'Station_', i, '_Output', sep="")
+    output_dir <- paste(user_dir, project_dir_name, "/", 'Station_', i, '_Output', sep="")
     #print(rhls(output_dir))
     outHDFSconn <- hdfsConn(output_dir, autoYes = TRUE)
     outputkvDdf <- ddf(outHDFSconn)
@@ -237,11 +257,12 @@ for (i in 1:num_station) {
 }
 hdfs.setwd(project_dir)
 
-# # replace NA with 0
+
 for (i in 1:num_station) {
   st_sum[[i]] <- st_sum[[i]] * fD
 }
 
+pdf()
 par(mar=c(4,4,4,4))
 #par(mfrow=c(num_stations,1))
 time = (0:(n/4 - 1)) * dt
