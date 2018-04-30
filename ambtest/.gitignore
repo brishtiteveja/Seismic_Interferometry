@@ -2,6 +2,9 @@ data/
 data_1d/
 data_3d/
 data_old/
+data5hours/
+data5hours_small/
+
 
 *.log
 rhipe-java*
