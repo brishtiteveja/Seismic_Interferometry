@@ -16,17 +16,16 @@ library(Rwave)
 library(datadr)
 library(signal)
 library(pracma)
-library(datadr)
 
-# plot in a pdf file
-# set the margin of the plot
-par(mar=c(1,1,1,1))
+user <- 'azehady/'
+#data_file_path = './data_1d/'
+#project_dir_name = 'interferometry_1d'
 
-data_file_name = './data2/'
-dir <- 'data2' # project directory
+data_file_path = './data2/'
+project_dir_name = 'data2'
 
 # get the file names from the directory in the server
-fnames = list.files(path=data_file_name,
+fnames = list.files(path=data_file_path,
                     pattern=NULL, full.names=TRUE)
 
 # get the number of the stations
@@ -35,22 +34,27 @@ num_station = length(fnames)
 Amp <- list()
 
 # create the user directory and move there
-user <- 'eergun/'
 user_dir <- paste('/user/', user, sep="")
 hdfs.setwd(user_dir)
 
+# remove tmp files
+tmp_dir <- paste(user_dir, 'tmp/*', sep="")
+rhdel(tmp_dir)
+
 # Create the project directory 
-project_dir <- paste(user_dir, dir, sep="")
-rhdel(project_dir)
-if (!rhexists(project_dir))
-  rhmkdir(project_dir)
+project_dir <- paste(user_dir, project_dir_name, sep="")
+
+if (rhexists(project_dir))
+  rhdel(project_dir)
+
+rhmkdir(project_dir)
 
 # change to the project directory
 hdfs.setwd(project_dir)
 
 data_dir <- "data"
 if (!rhexists(data_dir))
-   rhmkdir(data_dir)
+  rhmkdir(data_dir)
 
 # change to the data directory
 hdfs.setwd(data_dir)
@@ -70,43 +74,49 @@ for (i in 1:num_station) {
   st_num <- as.character(paste('100', i, sep="")) 
   station <- read1sac(fn , Iendian = 1 , HEADONLY=FALSE, BIGLONG=FALSE)
   
-  N_orig <- length(station$amp)
+  N <- length(station$amp)
+  NN <- n * as.integer(N/n)
+  NN <- NN - 1
+  #print(fn)
+  #print(NN)
   
-  nn <- as.integer(N_orig/n)
-  
-  N <- N_orig - 2 #nn * n - 1 
-  #N_del <- N_orig - N 
-  
-  station$station <- rep(st_num, N_orig)
+  station$station <- rep(st_num, N)
   stationDF <- data.frame(station=station['station'], amp=station['amp'])
-  stationDF <- stationDF[1:N, ]
+  
+  stationDF <- stationDF[1:(N-2), ]
   
   start_idx <- 1 
   
-  k <- 10
-  num_rows <- 2*n
+  k <- 10 
+  nn <- (NN + 1) / n
+  nnn <- as.integer(nn / k)
+  
+  if (nnn != 0)  
+    num_rows <- nnn * n
+  else
+    num_rows <- n
+  
   end_idx <- as.integer(num_rows)
- 
+  
   j <- 1 
   breakout = FALSE
   while(1) {
-    print(start_idx)
-    print(end_idx)
-    print("")
-    if (end_idx > N) {
-      end_idx = N
-      breakout = TRUE
+    #print(start_idx)
+    #print(end_idx)
+    #print("")
+    if (end_idx > NN) {
+      end_idx = NN
     }
     jN <- length(start_idx:end_idx)
     stationKV <- list(list(st_num, stationDF[start_idx:end_idx, ])) 
-   
+    
     stationDataFile <- paste(i, "_", j, "station", "_Data", sep="")
     j <- j + 1
     print(paste("Writing ", stationDataFile, " in HDFS."))
     if (!rhexists(stationDataFile))
       rhwrite(stationKV, file=stationDataFile)
-   
-    if (breakout)
+    
+    if (end_idx == NN)
       break
     
     start_idx <- end_idx + 1 
@@ -114,7 +124,7 @@ for (i in 1:num_station) {
   }
 }  
 
-hdfs_dir <- paste(user_dir, dir,"/", data_dir, sep="")
+hdfs_dir <- paste(user_dir, project_dir_name,"/", data_dir, sep="")
 seismHDFSconn <- hdfsConn(hdfs_dir, autoYes = TRUE)
 
 datakvDdf <- ddf(seismHDFSconn) 
@@ -177,7 +187,7 @@ last = recombine(proccc, combRbind)
 
 hdfs.setwd(project_dir)
 
-cor_threshhold <- 0.90
+cor_threshhold <- 0.60
 percent_subset_match <- 0.50
 
 station = list()
@@ -195,6 +205,7 @@ for (k in 1:num_station) {
   station_m[[k]] = matrix(v, nrow=m, byrow=FALSE)
   station_m[[k]] = station_m[[k]][1:(m/2 - 1), ]
   station_corm[[k]] = cor(station_m[[k]])
+  nn <- nrow(station_corm[[k]]) # number of subsets in each station
   #print(station_corm[[i]])
   # rgb.palette <- colorRampPalette(c("blue", "yellow"), space = "rgb")
   # # levelplot(station_corm[[i]], 
@@ -203,17 +214,17 @@ for (k in 1:num_station) {
   # #           col.regions=rgb.palette(120), 
   # #           cuts=100, at=seq(0,1,0.01))
   
-  selected_stations = list()
+  selected_stations = list() # selected subsets for each station
   n_selected_stations = c()
   for(i in 1:nn) {
-    selecteds = list()
+    selecteds = c()
     for(j in 1:nn) {
       if (i==j)
         next 
-      if(station_corm[[k]][i,j] > cor_threshhold) 
+      if(abs(station_corm[[k]][i,j]) > cor_threshhold) 
         selecteds = c(selecteds, j)
     }
-    selected_stations[[i]] = selecteds
+    selected_stations[[i]] = selecteds #selected for station i
     n_selected_stations = c(n_selected_stations, length(selecteds))
   }
   
@@ -239,7 +250,6 @@ for (k in 1:num_station) {
 #   plot(station[[i]]$val[1:l], type='l', col=i, ylab='Amp', main=t)
 # }
 # 
-
 
 m = n/4
 mm = (m/2)-1
@@ -267,10 +277,11 @@ pdf()
 time = (0:(n/4 - 1)) * dt
 for (i in 1:num_station) {
   t = paste("Summed Amplitude of noise from station", i)
-  plot(rev(st_sum[[i]][1:mm]), time, type='l', col=i, ylab='Time(s)', xlab='Amp', main=t, xlim=c(-max(st_sum[[i]]), max(st_sum[[i]])))
+  plot(rev(st_sum[[i]]), time, type='l', col=i, ylab='Time(s)', xlab='Amp', main=t, xlim=c(-max(st_sum[[i]]), max(st_sum[[i]])))
   abline(v=0, lty=2)
 }
 dev.off()
+
 
 # # Now each station data will be saved as chunk
 # m <- n/4

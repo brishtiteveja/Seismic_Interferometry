@@ -20,7 +20,9 @@ for (i in 1:num_station) {
   station = data.frame(station = station$HEAD$kstnm, amp = station$amp)
   N_orig <- length(station$amp)
   nn <- as.integer(N_orig/n)
-  station <- station[-nrow(station),]
+  NN <- nn * n # Taking a multiple of n
+  station = station[1:NN,]
+  #station <- station[-nrow(station),]
   station <- station[-nrow(station),]
   #station$HEAD.time = (1:length(station$HEAD.npts)-1)*dt
   station <- station[,c('station', 'amp')]
@@ -86,12 +88,12 @@ proccc <- addTransform(byamp, function(v) {
   # spectral whitening can be done dividing the power spectrum of autocorrelated data to smoothed data . add a little damping to the denominator
   wh_sta_22 = a_22_spec$spec / (s_22_spec$spec + 0.00001)
   wh_sta_22_time = abs(ifft((wh_sta_22)))
-  b2= butter(2, c(10/(fs/2), 20/(fs/2)))
+  b2= butter(2, c(6/(fs/2), 12/(fs/2)))
   result_station_22 <- filtfilt(b2, wh_sta_22_time, type="pass")
 })
 last = recombine(proccc, combRbind)
 
-cor_threshhold <- 0.90
+cor_threshhold <- 0.60
 percent_subset_match <- 0.50
 
 station = list()
@@ -125,7 +127,7 @@ for (k in 1:num_station) {
     for(j in 1:nn) {
       if (i==j)
         next 
-      if(station_corm[[k]][i,j] > cor_threshhold) 
+      if(abs(station_corm[[k]][i,j]) > cor_threshhold) 
         selecteds = c(selecteds, j)
     }
     selected_stations[[i]] = selecteds #selected for station i
@@ -141,10 +143,10 @@ for (k in 1:num_station) {
       selected_subsets[[i]]  = 1
     }
   }
-  selected_subsets_per_station[[k]] = selected_subsets
+  selected_subsets_per_station[[k]] <- selected_subsets
   SS <- selected_subsets_per_station[[k]]
   nSS <- length(SS[SS == 1])
-  n_selected_subsets_per_station = c(n_selected_subsets_per_station, nSS)
+  n_selected_subsets_per_station <- c(n_selected_subsets_per_station, nSS)
 }
 
 # 
@@ -175,19 +177,20 @@ for(j in 1:num_station) {
   st_sum[[j]] = cur_st_sum
 }
 
-#pdf()
+pdf()
 #par(mar=c(4,4,4,4))
 #par(mfrow=c(num_stations,1))
 time = (0:(n/4 - 1)) * dt
 for (i in 1:num_station) {
   t = paste("Summed Amplitude of noise from station", i)
-  plot(rev(st_sum[[i]][1:mm]), time, type='l', col=i, ylab='Time(s)', xlab='Amp', main=t, xlim=c(-max(st_sum[[i]]), max(st_sum[[i]])))
+  plot(rev(st_sum[[i]]), time, type='l', col=i, ylab='Time(s)', xlab='Amp', main=t, xlim=c(-max(st_sum[[i]]), max(st_sum[[i]])))
   abline(v=0, lty=2)
 }
-#dev.off()
+dev.off()
 
 
 ########
+#### Simple plotting with taking correlation of the subsets for each station
 # station = list()
 # 
 # for (i in 1:num_station) {
@@ -196,7 +199,7 @@ for (i in 1:num_station) {
 # }
 # 
 # m = n/4
-# st_sum = list()  
+# st_sum = list()
 # j = 1
 # for(st in station) {
 #   cur_st_sum = rep(0, m)
@@ -212,6 +215,7 @@ for (i in 1:num_station) {
 #   j = j+1
 # }
 # 
+# pdf()
 # #par(mar=c(4,4,4,4))
 # #par(mfrow=c(num_stations,1))
 # time = (0:(n/4 - 1)) * dt
@@ -220,3 +224,4 @@ for (i in 1:num_station) {
 #   plot(rev(st_sum[[i]]), time, type='l', col=i, ylab='Time(s)', xlab='Amp', main=t, xlim=c(-max(st_sum[[i]]), max(st_sum[[i]])))
 #   abline(v=0, lty=2)
 # }
+# dev.off()
