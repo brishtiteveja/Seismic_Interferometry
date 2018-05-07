@@ -1,3 +1,7 @@
+% code to generate station.csv to use in this matlab file
+% st_sum_matrix = matrix(unlist(st_sum), ncol = 20, byrow = FALSE)
+% write.table(st_sum_matrix, file="./station.csv", sep=",", col.names = F, row.names = F)
+
 addpath(genpath('./crewes'))
 clc ; clear ; close all;
 
