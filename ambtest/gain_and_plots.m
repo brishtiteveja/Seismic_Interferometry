@@ -5,9 +5,9 @@
 addpath(genpath('./crewes'))
 clc ; clear ; close all;
 
-M = dlmread('station3.csv',',',1,0);
+M = dlmread('station.csv',',',1,0);
 
-n = 8000
+n = 32000
 m = n / 4
 mm = m/2 - 1
 
@@ -21,7 +21,7 @@ dt = 0.004;
 t = (0 : length(St1)-1).*dt;
 
 % number of station
-num_station = 10
+num_station = 20
 
 dist_station = 100
 
